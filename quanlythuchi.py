@@ -199,4 +199,4 @@ with tab_edit:
     
     if not df.empty and len(df) > 0:
         df_select = df.copy().iloc[::-1]
-        df_select['display_text'] = df_select.apply(lambda r: f"{r['date']} | {r['type']} | {r['category']}
+        df_select['display_text'] = df_select.apply(lambda r: f"{r['date']} | {r['type']} | {r['category']} | {float(r['amount']):,.0f}đ ({r['note'] or ''})", axis=1)
