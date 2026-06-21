@@ -21,10 +21,11 @@ def load_data():
         if response.data and len(response.data) > 0:
             df = pd.DataFrame(response.data)
             # Tự động tạo hoặc chuẩn hóa cột id ảo để chạy mượt trong app
-            if 'id' not in df.columns or df['id'].isnull().all():
-                df['id'] = df.index
-            else:
-                df['id'] = df['id'].fillna(df.index)
+           # Tự động tạo hoặc chuẩn hóa cột id ảo bằng cách ép kiểu index về Series
+if 'id' not in df.columns or df['id'].isnull().all():
+    df['id'] = df.index.to_series()
+else:
+    df['id'] = df['id'].fillna(df.index.to_series())
             return df
     except Exception as e:
         st.error(f"Lỗi tải dữ liệu: {e}")
