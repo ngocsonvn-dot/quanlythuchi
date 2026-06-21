@@ -104,7 +104,7 @@ def save_config(init_balance, custom_cats):
 init_balance, custom_categories = load_config()
 
 # --- GIAO DIỆN APP STREAMLIT ---
-st.set_page_config(page_title="Quản Lý Tài Chính Online", page_icon="💰", layout="centered")
+st.set_page_config(page_title="Quản Lý thu chi của sơn", page_icon="💰", layout="centered")
 st.title("💰 Ứng Dụng Quản Lý Tài Chính Online")
 
 # --- PHẦN SIDEBAR (CÀI ĐẶT) ---
