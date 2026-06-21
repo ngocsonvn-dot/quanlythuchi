@@ -20,8 +20,11 @@ def load_data():
         response = supabase.table("transactions").select("*").order("date", desc=False).execute()
         if response.data and len(response.data) > 0:
             df = pd.DataFrame(response.data)
-            if 'id' not in df.columns:
+            # Tự động tạo hoặc chuẩn hóa cột id ảo để chạy mượt trong app
+            if 'id' not in df.columns or df['id'].isnull().all():
                 df['id'] = df.index
+            else:
+                df['id'] = df['id'].fillna(df.index)
             return df
     except Exception as e:
         st.error(f"Lỗi tải dữ liệu: {e}")
@@ -36,28 +39,35 @@ def save_transaction(date, t_type, category, amount, note):
         st.error(f"Lỗi lưu giao dịch: {e}")
         return False
 
-# --- HÀM CẬP NHẬT GIAO DỊCH THÔNG MINH ---
-def update_transaction(t_id, date, t_type, category, amount, note, old_row=None):
+# --- HÀM CẬP NHẬT GIAO DỊCH THÔNG MINH (KHÔNG CẦN ID THẬT) ---
+def update_transaction(date, t_type, category, amount, note, old_row):
     try:
         data = {"date": date, "type": t_type, "category": category, "amount": amount, "note": note}
-        # Nếu có ID thực tế thì sửa theo ID
-        if t_id and pd.notna(t_id):
-            supabase.table("transactions").update(data).eq("id", t_id).execute()
-        # Nếu ID bị trống (None), tìm theo các thông tin cũ để sửa
-        elif old_row is not None:
-            supabase.table("transactions").update(data).eq("date", old_row['date']).eq("category", old_row['category']).eq("amount", old_row['amount']).execute()
+        
+        # Ưu tiên kiểm tra nếu dòng cũ có ID thực tế và không phải số ảo (so sánh với index)
+        if 'id' in old_row and pd.notna(old_row['id']) and int(old_row['id']) > 1000: 
+            supabase.table("transactions").update(data).eq("id", old_row['id']).execute()
+        else:
+            # Nếu không có ID thật, tìm chính xác dòng cũ dựa vào các thuộc tính để ghi đè
+            query = supabase.table("transactions").update(data).eq("date", old_row['date']).eq("category", old_row['category'])
+            if old_row['note']:
+                query = query.eq("note", old_row['note'])
+            query.execute()
         return True
     except Exception as e:
         st.error(f"Lỗi cập nhật: {e}")
         return False
 
 # --- HÀM XÓA GIAO DỊCH THÔNG MINH ---
-def delete_transaction(t_id, old_row=None):
+def delete_transaction(old_row):
     try:
-        if t_id and pd.notna(t_id):
-            supabase.table("transactions").delete().eq("id", t_id).execute()
-        elif old_row is not None:
-            supabase.table("transactions").delete().eq("date", old_row['date']).eq("category", old_row['category']).eq("amount", old_row['amount']).execute()
+        if 'id' in old_row and pd.notna(old_row['id']) and int(old_row['id']) > 1000:
+            supabase.table("transactions").delete().eq("id", old_row['id']).execute()
+        else:
+            query = supabase.table("transactions").delete().eq("date", old_row['date']).eq("category", old_row['category'])
+            if old_row['note']:
+                query = query.eq("note", old_row['note'])
+            query.execute()
         return True
     except Exception as e:
         st.error(f"Lỗi xóa: {e}")
@@ -199,4 +209,43 @@ with tab_edit:
     
     if not df.empty and len(df) > 0:
         df_select = df.copy().iloc[::-1]
-        df_select['display_text'] = df_select.apply(lambda r: f"{r['date']} | {r['type']} | {r['category']} | {float(r['amount']):,.0f}đ ({r['note'] or ''})", axis=1)
+        df_select['display_text'] = df_select.apply(
+            lambda r: f"{r['date']} | {r['type']} | {r['category']} | {float(r['amount']):,.0f}đ", 
+            axis=1
+        )
+        
+        selected_option = st.selectbox("Chọn giao dịch bạn muốn sửa hoặc xóa:", df_select['display_text'].tolist())
+        selected_row = df_select[df_select['display_text'] == selected_option].iloc[0]
+        
+        st.markdown("---")
+        
+        edit_date = st.date_input("Sửa Ngày", datetime.strptime(selected_row['date'], "%Y-%m-%d"), key="edit_date")
+        edit_type = st.selectbox("Sửa Loại", ["Chi phí", "Thu nhập"], index=0 if selected_row['type'] == "Chi phí" else 1, key="edit_type")
+        
+        edit_categories = (default_chi + custom_categories) if edit_type == "Chi phí" else (default_thu + custom_categories)
+        try:
+            default_cat_index = edit_categories.index(selected_row['category'])
+        except:
+            default_cat_index = 0
+            
+        edit_cat = st.selectbox("Sửa Danh mục", edit_categories, index=default_cat_index, key="edit_cat")
+        edit_amount = st.number_input("Sửa Số tiền (VNĐ)", min_value=0.0, value=float(selected_row['amount']), step=1000.0, format="%.0f", key="edit_amount")
+        edit_note = st.text_input("Sửa Ghi chú", value=selected_row['note'] or "", key="edit_note")
+        
+        col_edit1, col_edit2 = st.columns(2)
+        with col_edit1:
+            if st.button("💾 CẬP NHẬT GIAO DỊCH", use_container_width=True, type="primary"):
+                if edit_amount > 0:
+                    if update_transaction(edit_date.strftime("%Y-%m-%d"), edit_type, edit_cat, edit_amount, edit_note, old_row=selected_row):
+                        st.success("Đã cập nhật thay đổi thành công!")
+                        st.rerun()
+                else:
+                    st.error("Số tiền sửa phải lớn hơn 0!")
+                    
+        with col_edit2:
+            if st.button("🗑️ XÓA BỎ GIAO DỊCH NÀY", use_container_width=True):
+                if delete_transaction(old_row=selected_row):
+                    st.warning("Đã xóa giao dịch khỏi hệ thống!")
+                    st.rerun()
+    else:
+        st.info("Chưa có dữ liệu nào để chỉnh sửa.")
