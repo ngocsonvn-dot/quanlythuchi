@@ -21,7 +21,7 @@ supabase = init_supabase()
 # --- CÁC HÀM XỬ LÝ DỮ LIỆU MẠNG ---
 def load_data():
     try:
-        response = supabase.table("transactions").select("*").order("date", descending=False).execute()
+        response = supabase.table("transactions").select("*").order("date", desc=False).execute()
         if response.data and len(response.data) > 0:
             df = pd.DataFrame(response.data)
             # Đổi tên cột từ tiếng Anh trên mạng sang tiếng Việt hiển thị trên App
