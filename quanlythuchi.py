@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 from supabase import create_client, Client
 
 # --- CẤU HÌNH KẾT NỐI ĐÁM MÂY SUPABASE ---
-SUPABASE_URL = "ĐIỀN_PROJECT_URL_CỦA_BẠN_VÀO_ĐÂY"
-SUPABASE_KEY = "ĐIỀN_API_KEY_ANON_PUBLIC_CỦA_BẠN_VÀO_ĐÂY"
+SUPABASE_URL = "https://ovzcqsbfrqkhidubwegy.supabase.co"
+SUPABASE_KEY = "sb_publishable_pwfUSnNT6NzulpzZoiNrbg_9yV2qZQJ"
 
 
 # Khởi tạo kết nối vĩnh viễn với database mạng
