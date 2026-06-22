@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 from supabase import create_client, Client
 
 # --- CẤU HÌNH KẾT NỐI ĐÁM MÂY SUPABASE ---
-SUPABASE_URL = "https://ovzcqsbfrqkhidubwegy.supabase.co"  # Hãy giữ nguyên URL của bạn ở đây ovzcqsbfrqkhidubwegy
-SUPABASE_KEY = "sb_publishable_pwfUSnNT6NzulpzZoiNrbg_9yV2qZQJ"   # Hãy giữ nguyên API Key của bạn ở đây sb_publishable_pwfUSnNT6NzulpzZoiNrbg_9yV2qZQJ
+SUPABASE_URL = "https://abcde12345xyz.supabase.co"  # Hãy giữ nguyên URL của bạn ở đây
+SUPABASE_KEY = "eyJ..."                            # Hãy giữ nguyên API Key của bạn ở đây
 
 @st.cache_resource
 def init_supabase() -> Client:
@@ -20,7 +20,6 @@ def load_data():
         response = supabase.table("transactions").select("*").order("date", desc=False).execute()
         if response.data and len(response.data) > 0:
             df = pd.DataFrame(response.data)
-            # Tự động tạo hoặc chuẩn hóa cột id ảo bằng cách ép kiểu index về Series
             if 'id' not in df.columns or df['id'].isnull().all():
                 df['id'] = df.index.to_series()
             else:
@@ -32,24 +31,28 @@ def load_data():
 
 def save_transaction(date, t_type, category, amount, note):
     try:
-        data = {"date": date, "type": t_type, "category": category, "amount": amount, "note": note}
+        # Nhân với 1000 trước khi lưu vào Supabase để giữ đúng giá trị gốc
+        real_amount = amount * 1000
+        data = {"date": date, "type": t_type, "category": category, "amount": real_amount, "note": note}
         supabase.table("transactions").insert(data).execute()
         return True
     except Exception as e:
         st.error(f"Lỗi lưu giao dịch: {e}")
         return False
 
-# --- HÀM CẬP NHẬT GIAO DỊCH THÔNG MINH (KHÔNG CẦN ID THẬT) ---
 def update_transaction(date, t_type, category, amount, note, old_row):
     try:
-        data = {"date": date, "type": t_type, "category": category, "amount": amount, "note": note}
+        # Nhân với 1000 trước khi cập nhật vào Supabase
+        real_amount = amount * 1000
+        data = {"date": date, "type": t_type, "category": category, "amount": real_amount, "note": note}
         
-        # Ưu tiên kiểm tra nếu dòng cũ có ID thực tế và không phải số ảo (so sánh với index)
+        # Chuyển đổi amount của old_row về giá trị thực tế để tìm kiếm chính xác dòng cần sửa
+        old_real_amount = float(old_row['amount_raw'])
+        
         if 'id' in old_row and pd.notna(old_row['id']) and int(old_row['id']) > 1000: 
             supabase.table("transactions").update(data).eq("id", old_row['id']).execute()
         else:
-            # Nếu không có ID thật, tìm chính xác dòng cũ dựa vào các thuộc tính để ghi đè
-            query = supabase.table("transactions").update(data).eq("date", old_row['date']).eq("category", old_row['category'])
+            query = supabase.table("transactions").update(data).eq("date", old_row['date']).eq("category", old_row['category']).eq("amount", old_real_amount)
             if old_row['note']:
                 query = query.eq("note", old_row['note'])
             query.execute()
@@ -58,13 +61,13 @@ def update_transaction(date, t_type, category, amount, note, old_row):
         st.error(f"Lỗi cập nhật: {e}")
         return False
 
-# --- HÀM XÓA GIAO DỊCH THÔNG MINH ---
 def delete_transaction(old_row):
     try:
-        if 'id' in old_row and pd.notna(old_row['id']) and int(old_row['id']) > 1000:
+        old_real_amount = float(old_row['amount_raw'])
+        if 'id' in old_row biases and pd.notna(old_row['id']) and int(old_row['id']) > 1000:
             supabase.table("transactions").delete().eq("id", old_row['id']).execute()
         else:
-            query = supabase.table("transactions").delete().eq("date", old_row['date']).eq("category", old_row['category'])
+            query = supabase.table("transactions").delete().eq("date", old_row['date']).eq("category", old_row['category']).eq("amount", old_real_amount)
             if old_row['note']:
                 query = query.eq("note", old_row['note'])
             query.execute()
@@ -100,17 +103,18 @@ def save_config(init_balance, custom_cats):
         st.error(f"Lỗi lưu cài đặt: {e}")
         return False
 
-# Tải cấu hình mạng ban đầu
+# Tải cấu hình ban đầu
 init_balance, custom_categories = load_config()
 
 # --- GIAO DIỆN APP STREAMLIT ---
-st.set_page_config(page_title="Quản Lý thu chi của sơn", page_icon="💰", layout="centered")
-st.title("💰 Quản Lý thu chi của sơn")
+st.set_page_config(page_title="Quản Lý Tài Chính Online", page_icon="💰", layout="centered")
+st.title("💰 Ứng Dụng Quản Lý Tài Chính Online")
 
 # --- PHẦN SIDEBAR (CÀI ĐẶT) ---
 with st.sidebar:
     st.header("⚙️ Cài đặt hệ thống")
-    new_init_balance = st.number_input("Số tiền hiện có ban đầu (VNĐ)", min_value=0.0, value=init_balance, step=10000.0, format="%.0f")
+    # Số dư ban đầu nhập theo đơn vị x1000đ cho đồng bộ
+    new_init_balance = st.number_input("Số tiền hiện có ban đầu (x1.000 VNĐ)", min_value=0.0, value=init_balance/1000.0, step=10.0, format="%.0f")
     
     st.subheader("➕ Thêm danh mục mới")
     new_cat = st.text_input("Tên danh mục muốn thêm", placeholder="Ví dụ: Tiền điện, Máy móc...")
@@ -120,13 +124,13 @@ with st.sidebar:
         if st.button("Lưu cài đặt"):
             if new_cat and new_cat not in custom_categories:
                 custom_categories.append(new_cat)
-            if save_config(new_init_balance, custom_categories):
+            if save_config(new_init_balance * 1000, custom_categories):
                 st.success("Đã cập nhật mạng!")
                 st.rerun()
             
     with col_btn2:
         if st.button("Xóa hết DM tự thêm"):
-            if save_config(new_init_balance, []):
+            if save_config(new_init_balance * 1000, []):
                 st.warning("Đã xóa danh mục tự thêm!")
                 st.rerun()
 
@@ -151,7 +155,8 @@ with tab_main:
         with col2:
             categories = (default_chi + custom_categories) if t_type == "Chi phí" else (default_thu + custom_categories)
             category = st.selectbox("Danh mục", categories, key="add_cat")
-            amount = st.number_input("Số tiền (VNĐ)", min_value=0.0, step=1000.0, format="%.0f", key="add_amount")
+            # Người dùng nhập rút gọn (Ví dụ gõ 34 thay vì 34000)
+            amount = st.number_input("Số tiền (x1.000 VNĐ) - Ví dụ: Nhập 34 cho 34.000đ", min_value=0.0, step=1.0, format="%.0f", key="add_amount")
             
         note = st.text_input("Ghi chú (không bắt buộc)", key="add_note")
         submit_button = st.form_submit_button(label='Lưu giao dịch')
@@ -168,18 +173,21 @@ with tab_main:
 
     # --- HIỂN THỊ BÁO CÁO & BIỂU ĐỒ ---
     st.markdown("---")
-    st.subheader("📊 Tổng Quan Tài Chính")
+    st.subheader("📊 Tổng Quan Tài Chính (Đơn vị: x1.000đ)")
 
     if not df.empty and 'amount' in df.columns:
-        df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
+        df['amount_raw'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
+        # Quy đổi tất cả hiển thị ra đơn vị nghìn đồng
+        df['amount'] = df['amount_raw'] / 1000.0
+        
         total_income = df[df['type'] == 'Thu nhập']['amount'].sum()
         total_expense = df[df['type'] == 'Chi phí']['amount'].sum()
-        balance = init_balance + total_income - total_expense
+        balance = (init_balance / 1000.0) + total_income - total_expense
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Tổng Thu thêm", f"{total_income:,.0f} đ")
-        c2.metric("Tổng Chi thêm", f"{total_expense:,.0f} đ", delta_color="inverse")
-        c3.metric("Số Dư Hiện Tại", f"{balance:,.0f} đ")
+        c1.metric("Tổng Thu thêm", f"{total_income:,.0f} k")
+        c2.metric("Tổng Chi thêm", f"{total_expense:,.0f} k", delta_color="inverse")
+        c3.metric("Số Dư Hiện Tại", f"{balance:,.0f} k")
 
         df_expense = df[df['type'] == 'Chi phí']
         if not df_expense.empty:
@@ -191,15 +199,15 @@ with tab_main:
             st.pyplot(fig)
 
         st.markdown("---")
-        st.subheader("📜 Lịch Sử Giao Dịch")
+        st.subheader("📜 Lịch Sử Giao Dịch (k = x1.000đ)")
         df_display = df.copy().iloc[::-1]
-        df_display = df_display.rename(columns={'date': 'Ngày', 'type': 'Loại', 'category': 'Danh mục', 'amount': 'Số tiền', 'note': 'Ghi chú'})
-        st.dataframe(df_display[['Ngày', 'Loại', 'Danh mục', 'Số tiền', 'Ghi chú']], use_container_width=True)
+        df_display = df_display.rename(columns={'date': 'Ngày', 'type': 'Loại', 'category': 'Danh mục', 'amount': 'Số tiền (k)', 'note': 'Ghi chú'})
+        st.dataframe(df_display[['Ngày', 'Loại', 'Danh mục', 'Số tiền (k)', 'Ghi chú']], use_container_width=True)
     else:
         c1, c2, c3 = st.columns(3)
-        c1.metric("Tổng Thu thêm", "0 đ")
-        c2.metric("Tổng Chi thêm", "0 đ")
-        c3.metric("Số Dư Hiện Tại", f"{init_balance:,.0f} đ")
+        c1.metric("Tổng Thu thêm", "0 k")
+        c2.metric("Tổng Chi thêm", "0 k")
+        c3.metric("Số Dư Hiện Tại", f"{init_balance/1000.0:,.0f} k")
         st.info("Chưa có giao dịch phát sinh trên hệ thống đám mây.")
 
 # --- KHU VỰC CHỈNH SỬA & XÓA (TAB 2) ---
@@ -209,8 +217,11 @@ with tab_edit:
     
     if not df.empty and len(df) > 0:
         df_select = df.copy().iloc[::-1]
+        df_select['amount_raw'] = pd.to_numeric(df_select['amount'], errors='coerce').fillna(0)
+        df_select['amount_k'] = df_select['amount_raw'] / 1000.0
+        
         df_select['display_text'] = df_select.apply(
-            lambda r: f"{r['date']} | {r['type']} | {r['category']} | {float(r['amount']):,.0f}đ", 
+            lambda r: f"{r['date']} | {r['type']} | {r['category']} | {float(r['amount_k']):,.0f}k", 
             axis=1
         )
         
@@ -229,7 +240,7 @@ with tab_edit:
             default_cat_index = 0
             
         edit_cat = st.selectbox("Sửa Danh mục", edit_categories, index=default_cat_index, key="edit_cat")
-        edit_amount = st.number_input("Sửa Số tiền (VNĐ)", min_value=0.0, value=float(selected_row['amount']), step=1000.0, format="%.0f", key="edit_amount")
+        edit_amount = st.number_input("Sửa Số tiền (x1.000 VNĐ)", min_value=0.0, value=float(selected_row['amount_k']), step=1.0, format="%.0f", key="edit_amount")
         edit_note = st.text_input("Sửa Ghi chú", value=selected_row['note'] or "", key="edit_note")
         
         col_edit1, col_edit2 = st.columns(2)
