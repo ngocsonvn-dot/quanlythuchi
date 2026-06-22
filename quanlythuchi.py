@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 from supabase import create_client, Client
 
 # --- CẤU HÌNH KẾT NỐI ĐÁM MÂY SUPABASE ---
-SUPABASE_URL = "https://abcde12345xyz.supabase.co"  # Hãy giữ nguyên URL của bạn ở đây
-SUPABASE_KEY = "eyJ..."                            # Hãy giữ nguyên API Key của bạn ở đây
+SUPABASE_URL = "https://ovzcqsbfrqkhidubwegy.supabase.co"  # <--- Hãy điền lại URL của bạn vào đây
+SUPABASE_KEY = "sb_publishable_pwfUSnNT6NzulpzZoiNrbg_9yV2qZQJ"                            # <--- Hãy điền lại API Key của bạn vào đây
 
 @st.cache_resource
 def init_supabase() -> Client:
@@ -31,7 +31,6 @@ def load_data():
 
 def save_transaction(date, t_type, category, amount, note):
     try:
-        # Nhân với 1000 trước khi lưu vào Supabase để giữ đúng giá trị gốc
         real_amount = amount * 1000
         data = {"date": date, "type": t_type, "category": category, "amount": real_amount, "note": note}
         supabase.table("transactions").insert(data).execute()
@@ -42,16 +41,13 @@ def save_transaction(date, t_type, category, amount, note):
 
 def update_transaction(date, t_type, category, amount, note, old_row):
     try:
-        # Nhân với 1000 trước khi cập nhật vào Supabase
         real_amount = amount * 1000
         data = {"date": date, "type": t_type, "category": category, "amount": real_amount, "note": note}
-        
-        # Chuyển đổi amount của old_row về giá trị thực tế để tìm kiếm chính xác dòng cần sửa
         old_real_amount = float(old_row['amount_raw'])
         
-        if 'id' in old_row and pd.notna(old_row['id']) and int(old_row['id']) > 1000: 
-            supabase.table("transactions").update(data).eq("id", old_row['id']).execute()
-        else:
+        try:
+            supabase.table("transactions").update(data).eq("id", int(old_row['id'])).execute()
+        except:
             query = supabase.table("transactions").update(data).eq("date", old_row['date']).eq("category", old_row['category']).eq("amount", old_real_amount)
             if old_row['note']:
                 query = query.eq("note", old_row['note'])
@@ -64,9 +60,10 @@ def update_transaction(date, t_type, category, amount, note, old_row):
 def delete_transaction(old_row):
     try:
         old_real_amount = float(old_row['amount_raw'])
-        if 'id' in old_row and pd.notna(old_row['id']) and int(old_row['id']) > 1000:
-            supabase.table("transactions").delete().eq("id", old_row['id']).execute()
-        else:
+        try:
+            t_id = int(old_row['id'])
+            supabase.table("transactions").delete().eq("id", t_id).execute()
+        except:
             query = supabase.table("transactions").delete().eq("date", old_row['date']).eq("category", old_row['category']).eq("amount", old_real_amount)
             if old_row['note']:
                 query = query.eq("note", old_row['note'])
@@ -110,14 +107,12 @@ init_balance, custom_categories = load_config()
 st.set_page_config(page_title="Quản Lý Tài Chính Online", page_icon="💰", layout="centered")
 st.title("💰 Ứng Dụng Quản Lý Tài Chính Online")
 
-# --- PHẦN SIDEBAR (CÀI ĐẶT) ---
+# --- PHẦN SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Cài đặt hệ thống")
-    # Số dư ban đầu nhập theo đơn vị x1000đ cho đồng bộ
     new_init_balance = st.number_input("Số tiền hiện có ban đầu (x1.000 VNĐ)", min_value=0.0, value=init_balance/1000.0, step=10.0, format="%.0f")
-    
     st.subheader("➕ Thêm danh mục mới")
-    new_cat = st.text_input("Tên danh mục muốn thêm", placeholder="Ví dụ: Tiền điện, Máy móc...")
+    new_cat = st.text_input("Tên danh mục muốn thêm", placeholder="Ví dụ: Tiền điện...")
     
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
@@ -155,7 +150,6 @@ with tab_main:
         with col2:
             categories = (default_chi + custom_categories) if t_type == "Chi phí" else (default_thu + custom_categories)
             category = st.selectbox("Danh mục", categories, key="add_cat")
-            # Người dùng nhập rút gọn (Ví dụ gõ 34 thay vì 34000)
             amount = st.number_input("Số tiền (x1.000 VNĐ) - Ví dụ: Nhập 34 cho 34.000đ", min_value=0.0, step=1.0, format="%.0f", key="add_amount")
             
         note = st.text_input("Ghi chú (không bắt buộc)", key="add_note")
@@ -169,7 +163,7 @@ with tab_main:
         else:
             st.error("Vui lòng nhập số tiền lớn hơn 0!")
 
-df = load_data()
+    df = load_data()
 
     # --- HIỂN THỊ BÁO CÁO & BIỂU ĐỒ ---
     st.markdown("---")
@@ -177,7 +171,6 @@ df = load_data()
 
     if not df.empty and 'amount' in df.columns:
         df['amount_raw'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
-        # Quy đổi tất cả hiển thị ra đơn vị nghìn đồng
         df['amount'] = df['amount_raw'] / 1000.0
         
         total_income = df[df['type'] == 'Thu nhập']['amount'].sum()
@@ -198,7 +191,7 @@ df = load_data()
             ax.axis('equal')
             st.pyplot(fig)
 
-        # --- ĐOẠN TỔNG HỢP THEO NGÀY ---
+        # --- BẢNG TỔNG HỢP THEO NGÀY ---
         st.markdown("---")
         st.subheader("📅 Tổng Hợp Thu Chi Theo Ngày (Đơn vị: k)")
         
@@ -216,6 +209,7 @@ df = load_data()
         
         st.dataframe(df_daily[['Tổng Thu (k)', 'Tổng Chi (k)', 'Chênh lệch (Thu - Chi)']], use_container_width=True)
 
+        # --- LỊCH SỬ GIAO DỊCH ---
         st.markdown("---")
         st.subheader("📜 Lịch Sử Giao Dịch (k = x1.000đ)")
         df_display = df.copy().iloc[::-1]
@@ -227,3 +221,54 @@ df = load_data()
         c2.metric("Tổng Chi thêm", "0 k")
         c3.metric("Số Dư Hiện Tại", f"{init_balance/1000.0:,.0f} k")
         st.info("Chưa có giao dịch phát sinh trên hệ thống đám mây.")
+
+# --- KHU VỰC CHỈNH SỬA & XÓA (TAB 2) ---
+with tab_edit:
+    st.subheader("🛠️ Sửa hoặc Xóa Giao Dịch Sai")
+    df = load_data()
+    
+    if not df.empty and len(df) > 0:
+        df_select = df.copy().iloc[::-1]
+        df_select['amount_raw'] = pd.to_numeric(df_select['amount'], errors='coerce').fillna(0)
+        df_select['amount_k'] = df_select['amount_raw'] / 1000.0
+        
+        df_select['display_text'] = df_select.apply(
+            lambda r: f"{r['date']} | {r['type']} | {r['category']} | {float(r['amount_k']):,.0f}k", 
+            axis=1
+        )
+        
+        selected_option = st.selectbox("Chọn giao dịch bạn muốn sửa hoặc xóa:", df_select['display_text'].tolist())
+        selected_row = df_select[df_select['display_text'] == selected_option].iloc[0]
+        
+        st.markdown("---")
+        
+        edit_date = st.date_input("Sửa Ngày", datetime.strptime(selected_row['date'], "%Y-%m-%d"), key="edit_date")
+        edit_type = st.selectbox("Sửa Loại", ["Chi phí", "Thu nhập"], index=0 if selected_row['type'] == "Chi phí" else 1, key="edit_type")
+        
+        edit_categories = (default_chi + custom_categories) if edit_type == "Chi phí" else (default_thu + custom_categories)
+        try:
+            default_cat_index = edit_categories.index(selected_row['category'])
+        except:
+            default_cat_index = 0
+            
+        edit_cat = st.selectbox("Sửa Danh mục", edit_categories, index=default_cat_index, key="edit_cat")
+        edit_amount = st.number_input("Sửa Số tiền (x1.000 VNĐ)", min_value=0.0, value=float(selected_row['amount_k']), step=1.0, format="%.0f", key="edit_amount")
+        edit_note = st.text_input("Sửa Ghi chú", value=selected_row['note'] or "", key="edit_note")
+        
+        col_edit1, col_edit2 = st.columns(2)
+        with col_edit1:
+            if st.button("💾 CẬP NHẬT GIAO DỊCH", use_container_width=True, type="primary"):
+                if edit_amount > 0:
+                    if update_transaction(edit_date.strftime("%Y-%m-%d"), edit_type, edit_cat, edit_amount, edit_note, old_row=selected_row):
+                        st.success("Đã cập nhật thay đổi thành công!")
+                        st.rerun()
+                else:
+                    st.error("Số tiền sửa phải lớn hơn 0!")
+                    
+        with col_edit2:
+            if st.button("🗑️ XÓA BỎ GIAO DỊCH NÀY", use_container_width=True):
+                if delete_transaction(old_row=selected_row):
+                    st.warning("Đã xóa giao dịch khỏi hệ thống!")
+                    st.rerun()
+    else:
+        st.info("Chưa có dữ liệu nào để chỉnh sửa.")
