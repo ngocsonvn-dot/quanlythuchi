@@ -173,7 +173,7 @@ with tab_main:
 
     # --- HIỂN THỊ BÁO CÁO & BIỂU ĐỒ ---
 df_expense = df[df['type'] == 'Chi phí']
-        if not df_expense.empty:
+if not df_expense.empty:
             st.subheader("🍕 Cơ Cấu Chi Tiêu")
             expense_by_cat = df_expense.groupby('category')['amount'].sum()
             fig, ax = plt.subplots(figsize=(6, 4))
