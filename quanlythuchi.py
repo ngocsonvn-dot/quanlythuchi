@@ -64,7 +64,7 @@ def update_transaction(date, t_type, category, amount, note, old_row):
 def delete_transaction(old_row):
     try:
         old_real_amount = float(old_row['amount_raw'])
-        if 'id' in old_row biases and pd.notna(old_row['id']) and int(old_row['id']) > 1000:
+        if 'id' in old_row and pd.notna(old_row['id']) and int(old_row['id']) > 1000:
             supabase.table("transactions").delete().eq("id", old_row['id']).execute()
         else:
             query = supabase.table("transactions").delete().eq("date", old_row['date']).eq("category", old_row['category']).eq("amount", old_real_amount)
