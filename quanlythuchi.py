@@ -172,24 +172,7 @@ with tab_main:
     df = load_data()
 
     # --- HIỂN THỊ BÁO CÁO & BIỂU ĐỒ ---
-    st.markdown("---")
-    st.subheader("📊 Tổng Quan Tài Chính (Đơn vị: x1.000đ)")
-
-    if not df.empty and 'amount' in df.columns:
-        df['amount_raw'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
-        # Quy đổi tất cả hiển thị ra đơn vị nghìn đồng
-        df['amount'] = df['amount_raw'] / 1000.0
-        
-        total_income = df[df['type'] == 'Thu nhập']['amount'].sum()
-        total_expense = df[df['type'] == 'Chi phí']['amount'].sum()
-        balance = (init_balance / 1000.0) + total_income - total_expense
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Tổng Thu thêm", f"{total_income:,.0f} k")
-        c2.metric("Tổng Chi thêm", f"{total_expense:,.0f} k", delta_color="inverse")
-        c3.metric("Số Dư Hiện Tại", f"{balance:,.0f} k")
-
-        df_expense = df[df['type'] == 'Chi phí']
+df_expense = df[df['type'] == 'Chi phí']
         if not df_expense.empty:
             st.subheader("🍕 Cơ Cấu Chi Tiêu")
             expense_by_cat = df_expense.groupby('category')['amount'].sum()
@@ -198,17 +181,35 @@ with tab_main:
             ax.axis('equal')
             st.pyplot(fig)
 
+        # --- ĐOẠN THÊM MỚI: TỔNG THU CHI THEO TỪNG NGÀY ---
+        st.markdown("---")
+        st.subheader("📅 Tổng Hợp Thu Chi Theo Ngày (Đơn vị: k)")
+        
+        # Tạo bảng pivot table nhóm theo Ngày, tính tổng riêng cho Chi phí và Thu nhập
+        df_daily = df.groupby(['date', 'type'])['amount'].sum().unstack(fill_value=0)
+        
+        # Đảm bảo bảng luôn có đủ 2 cột dù ngày đó chỉ có thu hoặc chỉ có chi
+        if 'Chi phí' not in df_daily.columns:
+            df_daily['Chi phí'] = 0.0
+        if 'Thu nhập' not in df_daily.columns:
+            df_daily['Thu nhập'] = 0.0
+            
+        # Tính số dư chênh lệch trong ngày (Thu - Chi)
+        df_daily['Chênh lệch (Thu - Chi)'] = df_daily['Thu nhập'] - df_daily['Chi phí']
+        
+        # Sắp xếp ngày mới nhất lên đầu bảng cho dễ nhìn
+        df_daily = df_daily.sort_index(ascending=False)
+        
+        # Định dạng lại tên cột và hiển thị số tiền rõ ràng
+        df_daily = df_daily.rename(columns={'Chi phí': 'Tổng Chi (k)', 'Thu nhập': 'Tổng Thu (k)'})
+        df_daily.index.names = ['Ngày']
+        
+        # Hiển thị bảng lên giao diện Streamlit
+        st.dataframe(df_daily[['Tổng Thu (k)', 'Tổng Chi (k)', 'Chênh lệch (Thu - Chi)']], use_container_width=True)
+        # --------------------------------------------------
+
         st.markdown("---")
         st.subheader("📜 Lịch Sử Giao Dịch (k = x1.000đ)")
-        df_display = df.copy().iloc[::-1]
-        df_display = df_display.rename(columns={'date': 'Ngày', 'type': 'Loại', 'category': 'Danh mục', 'amount': 'Số tiền (k)', 'note': 'Ghi chú'})
-        st.dataframe(df_display[['Ngày', 'Loại', 'Danh mục', 'Số tiền (k)', 'Ghi chú']], use_container_width=True)
-    else:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Tổng Thu thêm", "0 k")
-        c2.metric("Tổng Chi thêm", "0 k")
-        c3.metric("Số Dư Hiện Tại", f"{init_balance/1000.0:,.0f} k")
-        st.info("Chưa có giao dịch phát sinh trên hệ thống đám mây.")
 
 # --- KHU VỰC CHỈNH SỬA & XÓA (TAB 2) ---
 with tab_edit:
