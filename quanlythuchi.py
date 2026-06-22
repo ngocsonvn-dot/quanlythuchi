@@ -134,8 +134,13 @@ with st.sidebar:
         for c in custom_categories:
             st.caption(f"- {c}")
 
-default_chi = ["Ăn uống", "Di chuyển", "Mua sắm", "Nhà cửa", "Hóa đơn", "Khác"]
-default_thu = ["Lương", "Thưởng", "Kinh doanh", "Khác"]
+# --- PHÂN CHIA DANH MỤC THEO 2 MỤC LỚN ---
+# Các danh mục mặc định được định hình theo nhóm rõ ràng
+danh_muc_he_thong = {
+    "Chi tiêu cá nhân": ["Ăn uống", "Mua sắm cá nhân", "Nhà cửa & Sinh hoạt", "Di chuyển", "Khác (Cá nhân)"],
+    "Chi tiêu phục vụ kinh doanh": ["Mua vật tư / Nguyên liệu", "Sửa chữa máy móc", "Hóa đơn xưởng / Điện sản xuất", "Vận chuyển / Giao hàng", "Khác (Kinh doanh)"],
+    "Thu nhập": ["Lương", "Doanh thu kinh doanh", "Thưởng", "Khác (Thu nhập)"]
+}
 
 # --- CHIA TAB GIAO DIỆN ---
 tab_main, tab_edit = st.tabs(["📝 Thêm & Xem Báo Cáo", "🛠️ Chỉnh Sửa / Xóa Giao Dịch"])
@@ -146,10 +151,12 @@ with tab_main:
         col1, col2 = st.columns(2)
         with col1:
             date = st.date_input("Ngày giao dịch", datetime.now(), key="add_date")
-            t_type = st.selectbox("Loại giao dịch", ["Chi phí", "Thu nhập"], key="add_type")
+            # Chọn loại lớn trước
+            t_group = st.selectbox("Mục lớn", ["Chi tiêu cá nhân", "Chi tiêu phục vụ kinh doanh", "Thu nhập"], key="add_group")
         with col2:
-            categories = (default_chi + custom_categories) if t_type == "Chi phí" else (default_thu + custom_categories)
-            category = st.selectbox("Danh mục", categories, key="add_cat")
+            # Lấy danh sách danh mục tương ứng với Mục lớn đã chọn + kết hợp danh mục tự thêm
+            categories = danh_muc_he_thong[t_group] + custom_categories
+            category = st.selectbox("Danh mục cụ thể", categories, key="add_cat")
             amount = st.number_input("Số tiền (x1.000 VNĐ) - Ví dụ: Nhập 34 cho 34.000đ", min_value=0.0, step=1.0, format="%.0f", key="add_amount")
             
         note = st.text_input("Ghi chú (không bắt buộc)", key="add_note")
@@ -157,7 +164,12 @@ with tab_main:
 
     if submit_button:
         if amount > 0:
-            if save_transaction(date.strftime("%Y-%m-%d"), t_type, category, amount, note):
+            # Lưu loại giao dịch: Nếu là Thu nhập thì lưu "Thu nhập", còn lại lưu là "Chi phí" để tính toán, ghi chú/danh mục sẽ giữ vai trò phân loại lớn
+            t_type = "Thu nhập" if t_group == "Thu nhập" else "Chi phí"
+            # Lưu tên Mục lớn kèm vào danh mục hoặc ghi chú để sau này truy vết thu chi
+            actual_category = f"[{t_group}] {category}"
+            
+            if save_transaction(date.strftime("%Y-%m-%d"), t_type, actual_category, amount, note):
                 st.success("Đã lưu lên đám mây thành công!")
                 st.rerun()
         else:
@@ -173,52 +185,90 @@ with tab_main:
         df['amount_raw'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
         df['amount'] = df['amount_raw'] / 1000.0
         
+        # Hàm hỗ trợ phân tách Mục lớn để xử lý báo cáo
+        def parse_group(cat):
+            if "[Chi tiêu cá nhân]" in str(cat): return "Cá nhân"
+            if "[Chi tiêu phục vụ kinh doanh]" in str(cat): return "Kinh doanh"
+            return "Khác"
+
+        df['Muc_Lon'] = df['category'].apply(parse_group)
+        # Làm sạch tên danh mục hiển thị (bỏ phần tiền tố [Mục lớn])
+        df['Danh_Muc_Sạch'] = df['category'].apply(lambda x: str(x).split('] ')[-1] if ']' in str(x) else str(x))
+
         total_income = df[df['type'] == 'Thu nhập']['amount'].sum()
         total_expense = df[df['type'] == 'Chi phí']['amount'].sum()
         balance = (init_balance / 1000.0) + total_income - total_expense
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Tổng Thu thêm", f"{total_income:,.0f} k")
-        c2.metric("Tổng Chi thêm", f"{total_expense:,.0f} k", delta_color="inverse")
+        c1.metric("Tổng Thu nhập", f"{total_income:,.0f} k")
+        c2.metric("Tổng Chi tiêu", f"{total_expense:,.0f} k", delta_color="inverse")
         c3.metric("Số Dư Hiện Tại", f"{balance:,.0f} k")
 
+        # Tách biệt số liệu 2 mục chi tiêu lớn để hiển thị trực quan
         df_expense = df[df['type'] == 'Chi phí']
         if not df_expense.empty:
-            st.subheader("🍕 Cơ Cấu Chi Tiêu")
-            expense_by_cat = df_expense.groupby('category')['amount'].sum()
-            fig, ax = plt.subplots(figsize=(6, 4))
-            ax.pie(expense_by_cat, labels=expense_by_cat.index, autopct='%1.1f%%', startangle=90)
-            ax.axis('equal')
-            st.pyplot(fig)
+            st.markdown("---")
+            col_chart1, col_chart2 = st.columns(2)
+            
+            with col_chart1:
+                df_ca_nhan = df_expense[df_expense['Muc_Lon'] == 'Cá nhân']
+                st.subheader("🛒 Chi Tiêu Cá Nhân")
+                if not df_ca_nhan.empty:
+                    exp_cn = df_ca_nhan.groupby('Danh_Muc_Sạch')['amount'].sum()
+                    fig, ax = plt.subplots(figsize=(5, 5))
+                    ax.pie(exp_cn, labels=exp_cn.index, autopct='%1.1f%%', startangle=90)
+                    ax.axis('equal')
+                    st.pyplot(fig)
+                    st.write(f"**Tổng chi cá nhân:** {df_ca_nhan['amount'].sum():,.0f} k")
+                else:
+                    st.info("Chưa có dữ liệu chi tiêu cá nhân.")
+                    
+            with col_chart2:
+                df_kinh_doanh = df_expense[df_expense['Muc_Lon'] == 'Kinh doanh']
+                st.subheader("🏭 Phục Vụ Kinh Doanh")
+                if not df_kinh_doanh.empty:
+                    exp_kd = df_kinh_doanh.groupby('Danh_Muc_Sạch')['amount'].sum()
+                    fig, ax = plt.subplots(figsize=(5, 5))
+                    ax.pie(exp_kd, labels=exp_kd.index, autopct='%1.1f%%', startangle=90)
+                    ax.axis('equal')
+                    st.pyplot(fig)
+                    st.write(f"**Tổng chi kinh doanh:** {df_kinh_doanh['amount'].sum():,.0f} k")
+                else:
+                    st.info("Chưa có dữ liệu chi kinh doanh.")
 
         # --- BẢNG TỔNG HỢP THEO NGÀY ---
         st.markdown("---")
         st.subheader("📅 Tổng Hợp Thu Chi Theo Ngày (Đơn vị: k)")
         
-        df_daily = df.groupby(['date', 'type'])['amount'].sum().unstack(fill_value=0)
+        # Nhóm dữ liệu theo ngày và mục phân loại cụ thể
+        df_daily_raw = df.copy()
+        df_daily_raw['Loai_Phan_Chia'] = df_daily_raw.apply(
+            lambda r: "Tổng Thu" if r['type'] == 'Thu nhập' else f"Chi {r['Muc_Lon']}", axis=1
+        )
         
-        if 'Chi phí' not in df_daily.columns:
-            df_daily['Chi phí'] = 0.0
-        if 'Thu nhập' not in df_daily.columns:
-            df_daily['Thu nhập'] = 0.0
-            
-        df_daily['Chênh lệch (Thu - Chi)'] = df_daily['Thu nhập'] - df_daily['Chi phí']
+        df_daily = df_daily_raw.groupby(['date', 'loai_phan_chia' if 'loai_phan_chia' in df_daily_raw else 'Loai_Phan_Chia'])['amount'].sum().unstack(fill_value=0)
+        
+        for col in ['Tổng Thu', 'Chi Cá nhân', 'Chi Kinh doanh']:
+            if col not in df_daily.columns:
+                df_daily[col] = 0.0
+                
+        df_daily['Chênh lệch dòng tiền'] = df_daily['Tổng Thu'] - df_daily['Chi Cá nhân'] - df_daily['Chi Kinh doanh']
         df_daily = df_daily.sort_index(ascending=False)
-        df_daily = df_daily.rename(columns={'Chi phí': 'Tổng Chi (k)', 'Thu nhập': 'Tổng Thu (k)'})
         df_daily.index.names = ['Ngày']
         
-        st.dataframe(df_daily[['Tổng Thu (k)', 'Tổng Chi (k)', 'Chênh lệch (Thu - Chi)']], use_container_width=True)
+        st.dataframe(df_daily[['Tổng Thu', 'Chi Cá nhân', 'Chi Kinh doanh', 'Chênh lệch dòng tiền']], use_container_width=True)
 
         # --- LỊCH SỬ GIAO DỊCH ---
         st.markdown("---")
-        st.subheader("📜 Lịch Sử Giao Dịch (k = x1.000đ)")
+        st.subheader("📜 Lịch Sử Giao Dịch Chi Tiết (k = x1.000đ)")
         df_display = df.copy().iloc[::-1]
-        df_display = df_display.rename(columns={'date': 'Ngày', 'type': 'Loại', 'category': 'Danh mục', 'amount': 'Số tiền (k)', 'note': 'Ghi chú'})
-        st.dataframe(df_display[['Ngày', 'Loại', 'Danh mục', 'Số tiền (k)', 'Ghi chú']], use_container_width=True)
+        df_display['Loại mục'] = df_display['Muc_Lon'].map({'Cá nhân': 'Cá nhân 👤', 'Kinh doanh': 'Kinh doanh 🏭', 'Khác': 'Thu nhập 💰'})
+        df_display = df_display.rename(columns={'date': 'Ngày', 'Danh_Muc_Sạch': 'Danh mục', 'amount': 'Số tiền (k)', 'note': 'Ghi chú'})
+        st.dataframe(df_display[['Ngày', 'Loại mục', 'Danh mục', 'Số tiền (k)', 'Ghi chú']], use_container_width=True)
     else:
         c1, c2, c3 = st.columns(3)
-        c1.metric("Tổng Thu thêm", "0 k")
-        c2.metric("Tổng Chi thêm", "0 k")
+        c1.metric("Tổng Thu nhập", "0 k")
+        c2.metric("Tổng Chi tiêu", "0 k")
         c3.metric("Số Dư Hiện Tại", f"{init_balance/1000.0:,.0f} k")
         st.info("Chưa có giao dịch phát sinh trên hệ thống đám mây.")
 
@@ -233,7 +283,7 @@ with tab_edit:
         df_select['amount_k'] = df_select['amount_raw'] / 1000.0
         
         df_select['display_text'] = df_select.apply(
-            lambda r: f"{r['date']} | {r['type']} | {r['category']} | {float(r['amount_k']):,.0f}k", 
+            lambda r: f"{r['date']} | {str(r['category']).split('] ')[-1] if ']' in str(r['category']) else r['category']} | {float(r['amount_k']):,.0f}k", 
             axis=1
         )
         
@@ -243,11 +293,13 @@ with tab_edit:
         st.markdown("---")
         
         edit_date = st.date_input("Sửa Ngày", datetime.strptime(selected_row['date'], "%Y-%m-%d"), key="edit_date")
-        edit_type = st.selectbox("Sửa Loại", ["Chi phí", "Thu nhập"], index=0 if selected_row['type'] == "Chi phí" else 1, key="edit_type")
+        edit_group = st.selectbox("Sửa Mục lớn", ["Chi tiêu cá nhân", "Chi tiêu phục vụ kinh doanh", "Thu nhập"], 
+                                  index=0 if "[Chi tiêu cá nhân]" in str(selected_row['category']) else (1 if "[Chi tiêu phục vụ kinh doanh]" in str(selected_row['category']) else 2), key="edit_group")
         
-        edit_categories = (default_chi + custom_categories) if edit_type == "Chi phí" else (default_thu + custom_categories)
+        raw_cat = str(selected_row['category']).split('] ')[-1] if ']' in str(selected_row['category']) else str(selected_row['category'])
+        edit_categories = danh_muc_he_thong[edit_group] + custom_categories
         try:
-            default_cat_index = edit_categories.index(selected_row['category'])
+            default_cat_index = edit_categories.index(raw_cat)
         except:
             default_cat_index = 0
             
@@ -259,7 +311,9 @@ with tab_edit:
         with col_edit1:
             if st.button("💾 CẬP NHẬT GIAO DỊCH", use_container_width=True, type="primary"):
                 if edit_amount > 0:
-                    if update_transaction(edit_date.strftime("%Y-%m-%d"), edit_type, edit_cat, edit_amount, edit_note, old_row=selected_row):
+                    actual_edit_type = "Thu nhập" if edit_group == "Thu nhập" else "Chi phí"
+                    actual_edit_cat = f"[{edit_group}] {edit_cat}"
+                    if update_transaction(edit_date.strftime("%Y-%m-%d"), actual_edit_type, actual_edit_cat, edit_amount, edit_note, old_row=selected_row):
                         st.success("Đã cập nhật thay đổi thành công!")
                         st.rerun()
                 else:
